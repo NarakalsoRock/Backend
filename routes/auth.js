@@ -1,8 +1,12 @@
+// routes/auth.js
 const express = require('express');
-const router = express.Router();
-const authController = require('../controllers/authController');
+const { signup, login, getMe } = require('../controllers/authController');
+const { protect } = require('../middlewares/auth');
 
-router.post('/signup', authController.signup);
-router.post('/login', authController.login);
+const router = express.Router();
+
+router.post('/signup', signup);
+router.post('/login', login);
+router.get('/me', protect, getMe); // protect 미들웨어 적용
 
 module.exports = router;
