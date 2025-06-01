@@ -1,17 +1,16 @@
-// config/db.js
 const mongoose = require('mongoose');
+require('dotenv').config();
 
 const connectDB = async () => {
     try {
-        const conn = await mongoose.connect(process.env.MONGODB_URI, {
+        await mongoose.connect(process.env.MONGODB_URI, {
             useNewUrlParser: true,
-            useUnifiedTopology: true,
-
+            useUnifiedTopology: true
         });
-        console.log(`MongoDB Connected: ${conn.connection.host}`);
-    } catch (err) {
-        console.error(`Error: ${err.message}`);
-        process.exit(1); // 프로세스 종료
+        console.log('MongoDB 연결 성공');
+    } catch (error) {
+        console.error('MongoDB 연결 실패:', error);
+        process.exit(1);
     }
 };
 

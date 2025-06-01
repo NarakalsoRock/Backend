@@ -1,5 +1,4 @@
-// controllers/authController.js
-const User = require('../models/user');
+const User = require('../models/User');
 const getSignedJwtToken = require('../utils/jwt');
 
 // @desc    회원가입
@@ -7,7 +6,7 @@ const getSignedJwtToken = require('../utils/jwt');
 // @access  Public
 exports.signup = async (req, res, next) => {
     try {
-        const { email, password, nickname } = req.body;
+        const { email, password, username } = req.body;
 
         // 이메일 중복 확인
         const existingEmail = await User.findOne({ email });
@@ -15,16 +14,16 @@ exports.signup = async (req, res, next) => {
             return res.status(400).json({ success: false, error: '이미 등록된 이메일입니다.' });
         }
 
-        // 닉네임 중복 확인
-        const existingNickname = await User.findOne({ nickname });
-        if (existingNickname) {
-            return res.status(400).json({ success: false, error: '이미 사용 중인 닉네임입니다.' });
+        // 사용자명 중복 확인
+        const existingUsername = await User.findOne({ username });
+        if (existingUsername) {
+            return res.status(400).json({ success: false, error: '이미 사용 중인 사용자명입니다.' });
         }
 
         const user = await User.create({
             email,
             password,
-            nickname
+            username
         });
 
         const token = getSignedJwtToken(user._id);
@@ -79,7 +78,7 @@ exports.login = async (req, res, next) => {
             user: {
                 id: user._id,
                 email: user.email,
-                nickname: user.nickname
+                username: user.username
             }
         });
     } catch (err) {

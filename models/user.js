@@ -1,29 +1,29 @@
-// models/User.js
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs'); // bcryptjs 모듈 추가
 
-const UserSchema = new mongoose.Schema({
+const userSchema = new mongoose.Schema({
+    username: {
+        type: String,
+        required: true,
+        unique: true
+    },
     email: {
         type: String,
-        required: [true, '이메일을 입력해주세요.'], // 에러 메시지 추가
-        unique: true,
-        match: [ // 이메일 형식 검사 정규식 추가
-            /^\S+@\S+\.\S+$/,
-            '유효한 이메일 주소를 입력해주세요.'
-        ]
+        required: true,
+        unique: true
     },
-    password: { // 필드 이름은 password로 통일 (passwordHash 대신)
+    password: {
         type: String,
-        required: [true, '비밀번호를 입력해주세요.'],
-        minlength: [6, '비밀번호는 최소 6자 이상이어야 합니다.'], // 최소 길이 제한 추가
-        select: false // 비밀번호는 조회 시 기본적으로 포함되지 않도록 설정
+        required: true
     },
-    nickname: {
-        type: String,
-        required: [true, '닉네임을 입력해주세요.'],
-        unique: true, // 닉네임도 고유해야 함
-        minlength: [2, '닉네임은 최소 2자 이상이어야 합니다.'] // 닉네임 최소 길이 제한
-    },
+    likedMovies: [{
+        type: Number, // TMDB 영화 ID
+        default: []
+    }],
+    bookmarkedMovies: [{
+        type: Number, // TMDB 영화 ID
+        default: []
+    }],
     createdAt: {
         type: Date,
         default: Date.now
@@ -32,9 +32,9 @@ const UserSchema = new mongoose.Schema({
 
 // 비밀번호 해싱 미들웨어 (저장 전 실행)
 // isModified('password')를 통해 비밀번호가 변경될 때만 해싱하도록 함
-UserSchema.pre('save', async function(next) {
+userSchema.pre('save', async function(next) {
     if (!this.isModified('password')) {
-        next();
+        return next();
     }
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);
@@ -42,9 +42,10 @@ UserSchema.pre('save', async function(next) {
 });
 
 // 비밀번호 일치 확인 메서드 (사용자 모델 인스턴스에서 호출 가능)
-UserSchema.methods.matchPassword = async function(enteredPassword) {
+userSchema.methods.matchPassword = async function(enteredPassword) {
     // 저장된 해시 비밀번호 (this.password)와 입력된 비밀번호(enteredPassword) 비교
     return await bcrypt.compare(enteredPassword, this.password);
 };
 
-module.exports = mongoose.model('User', UserSchema);
+// 모델이 이미 존재하는지 확인하고, 존재하지 않는 경우에만 새로 생성
+module.exports = mongoose.models.User || mongoose.model('User', userSchema);
