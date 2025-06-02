@@ -11,6 +11,15 @@ connectDB(); // 함수 호출
 
 const app = express();
 
+// !!!! 최상단 테스트 라우트 !!!!
+app.get('/test-app', (req, res) => {
+    res.send('App.js /test-app route is working!');
+});
+app.post('/test-app-post', (req, res) => {
+    res.send('App.js /test-app-post route is working!');
+});
+
+
 // JSON 파싱 미들웨어
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -27,11 +36,13 @@ app.use(cors({
 const authRoutes = require('./routes/authRoutes');
 // const userRoutes = require('./routes/users'); // 필요에 따라 주석 해제
 const movieRoutes = require('./routes/moviesRoutes');
+const userActionsRoutes = require('./routes/userActionsRoutes');
 
 // 라우트 마운트
 app.use('/api/auth', authRoutes);
-// app.use('/api/users', userRoutes);
 app.use('/api/movies', movieRoutes);
+app.use('/api/actions', userActionsRoutes);
+// app.use('/api/users', userRoutes);
 
 // 에러 핸들링
 app.use((err, req, res, next) => {
