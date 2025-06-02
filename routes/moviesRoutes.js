@@ -8,9 +8,10 @@ const BASE_URL = 'https://api.themoviedb.org/3';
 const IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/';
 
 // 헬퍼 함수: 포스터 URL 생성
-const getFullPosterUrl = (posterPath, size = 'w500') => {
+const getFullPosterUrl = (posterPath, size = 'w342') => {
     if (!posterPath) return null;
-    return `${IMAGE_BASE_URL}${size}${posterPath}`;
+    // Cache-Control 헤더를 위해 URL에 버전 파라미터 추가
+    return `${IMAGE_BASE_URL}${size}${posterPath}?v=1`;
 };
 
 // 1. 메인 영화 (현재 상영작 상위 10개 중 랜덤 선택)
