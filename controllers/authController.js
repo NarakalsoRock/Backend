@@ -1,4 +1,4 @@
-const User = require('../models/User');
+const User = require('../models/user');
 const getSignedJwtToken = require('../utils/jwt');
 
 // @desc    회원가입

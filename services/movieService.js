@@ -1,4 +1,4 @@
-const User = require('../models/User');
+const User = require('../models/user');
 
 class MovieService {
     // 좋아요한 영화 목록 가져오기

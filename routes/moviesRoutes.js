@@ -2,6 +2,7 @@ const express = require('express');
 const axios = require('axios');
 const router = express.Router();
 const movieService = require('../services/movieService');
+const User = require('../models/user');
 
 const API_KEY = process.env.TMDB_API_KEY; // .env에서 로드된 API 키 사용
 const BASE_URL = 'https://api.themoviedb.org/3';
@@ -190,112 +191,177 @@ router.get('/upcoming', async (req, res) => {
 });
 
 // 4. 영화 상세 정보
-router.get('/movie/:id', async (req, res) => {
+router.get('/:id', async (req, res) => {
     try {
         const movieId = req.params.id;
-        const response = await axios.get(`${BASE_URL}/movie/${movieId}?api_key=${API_KEY}&language=ko-KR`);
-        const movieData = response.data;
+        
+        // movieId가 숫자인지 확인
+        if (!/^\d+$/.test(movieId)) {
+            return res.status(400).json({ message: '유효하지 않은 영화 ID입니다.' });
+        }
 
-        // 추가적으로 크레딧 정보도 가져오기 (배우, 감독)
+        const tmdbMovieResponse = await axios.get(`${BASE_URL}/movie/${movieId}?api_key=${API_KEY}&language=ko-KR`);
+        const movieData = tmdbMovieResponse.data;
+
         const creditsResponse = await axios.get(`${BASE_URL}/movie/${movieId}/credits?api_key=${API_KEY}&language=ko-KR`);
         const creditsData = creditsResponse.data;
 
-        const cast = creditsData.cast.slice(0, 5).map(person => ({ // 주요 출연진 5명
+        const cast = creditsData.cast.slice(0, 10).map(person => ({
             id: person.id,
             name: person.name,
             character: person.character,
-            profile_path: getFullPosterUrl(person.profile_path, 'w185') // 배우 프로필 이미지
+            profile_path: getFullPosterUrl(person.profile_path, 'w185')
         }));
         const director = creditsData.crew.find(person => person.job === 'Director');
+
+        let userLiked = false;
+        let userBookmarked = false;
+        let userId = null;
+
+        // 1. Authorization 헤더에서 토큰 파싱 시도
+        const authHeader = req.headers.authorization;
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            const token = authHeader.split(' ')[1];
+            if (token && process.env.JWT_SECRET) {
+                try {
+                    const jwt = require('jsonwebtoken');
+                    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+                    userId = decoded.id;
+                } catch (err) {
+                    console.warn('JWT verification failed in /:id (from header):', err.message);
+                }
+            }
+        }
+
+        // 2. req.user 확인 (상위 라우터에서 protect 미들웨어가 적용된 경우)
+        if (!userId && req.user && req.user.id) {
+            userId = req.user.id;
+        }
+
+        // 확보된 userId로 사용자 정보 조회
+        if (userId) {
+            try {
+                const user = await User.findById(userId);
+                if (user) {
+                    userLiked = user.likedMovies.some(movie => String(movie.movieId) === String(movieId));
+                    userBookmarked = user.bookmarkedMovies.some(movie => String(movie.movieId) === String(movieId));
+                }
+            } catch (dbError) {
+                console.error('Error fetching user for like/bookmark status in /:id:', dbError.message);
+            }
+        }
 
         res.json({
             id: movieData.id,
             title: movieData.title,
-            original_title: movieData.original_title,
             overview: movieData.overview,
-            release_date: movieData.release_date,
-            vote_average: movieData.vote_average,
-            runtime: movieData.runtime,
-            genres: movieData.genres ? movieData.genres.map(genre => genre.name) : [],
             poster_path: getFullPosterUrl(movieData.poster_path, 'w500'),
             backdrop_path: getFullPosterUrl(movieData.backdrop_path, 'w1280'),
+            release_date: movieData.release_date,
+            runtime: movieData.runtime,
+            vote_average: movieData.vote_average,
+            genres: movieData.genres.map(genre => genre.name),
+            adult: movieData.adult,
             cast: cast,
-            director: director ? { id: director.id, name: director.name } : null
+            director: director ? { name: director.name } : null,
+            isLiked: userLiked,
+            isBookmarked: userBookmarked
         });
     } catch (error) {
-        console.error(`Error fetching movie details for ID ${req.params.id}:`, error);
-        if (error.response && error.response.status === 404) {
-            res.status(404).json({ message: 'Movie not found.' });
-        } else {
-            res.status(500).json({ message: 'Failed to fetch movie details.' });
-        }
+        console.error("Error fetching movie details:", error);
+        res.status(500).json({ message: 'Failed to fetch movie details.' });
     }
 });
 
-// 5. 마이페이지 - 좋아요한 영화 목록
+// 5. 마이페이지 - 좋아요한 영화 목록 (User 모델 직접 사용, req.user 의존)
 router.get('/liked', async (req, res) => {
     try {
-        // 실제 구현에서는 인증 미들웨어에서 userId를 가져와야 합니다
-        const userId = req.user.id; // 예시로 req.user 사용
-        const movieIds = await movieService.getLikedMovies(userId);
-        const movies = [];
-
-        for (const movieId of movieIds) {
-            const response = await axios.get(`${BASE_URL}/movie/${movieId}?api_key=${API_KEY}&language=ko-KR`);
-            movies.push({
-                id: response.data.id,
-                title: response.data.title,
-                poster_path: getFullPosterUrl(response.data.poster_path),
-                release_date: response.data.release_date,
-                vote_average: response.data.vote_average
-            });
+        if (!req.user || !req.user.id) {
+            return res.status(401).json({ message: '인증되지 않은 사용자입니다. 이 기능을 사용하려면 로그인이 필요합니다.' });
         }
-
-        res.json({ movies });
+        const userId = req.user.id;
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: '사용자를 찾을 수 없습니다.' });
+        }
+        const likedMoviesDetails = [];
+        if (user.likedMovies && user.likedMovies.length > 0) {
+            for (const likedMovie of user.likedMovies) {
+                try {
+                    const response = await axios.get(`${BASE_URL}/movie/${likedMovie.movieId}?api_key=${API_KEY}&language=ko-KR`);
+                    likedMoviesDetails.push({
+                        id: response.data.id,
+                        title: response.data.title,
+                        poster_path: getFullPosterUrl(response.data.poster_path),
+                        release_date: response.data.release_date,
+                        vote_average: response.data.vote_average
+                    });
+                } catch (movieError) {
+                    console.error(`Error fetching details for liked movie ${likedMovie.movieId}:`, movieError.message);
+                }
+            }
+        }
+        res.json({ movies: likedMoviesDetails });
     } catch (error) {
         console.error("Error fetching liked movies:", error);
         res.status(500).json({ message: 'Failed to fetch liked movies.' });
     }
 });
 
-// 6. 마이페이지 - 북마크한 영화 목록
+// 6. 마이페이지 - 북마크한 영화 목록 (User 모델 직접 사용, req.user 의존)
 router.get('/bookmarked', async (req, res) => {
     try {
-        // 실제 구현에서는 인증 미들웨어에서 userId를 가져와야 합니다
-        const userId = req.user.id; // 예시로 req.user 사용
-        const movieIds = await movieService.getBookmarkedMovies(userId);
-        const movies = [];
-
-        for (const movieId of movieIds) {
-            const response = await axios.get(`${BASE_URL}/movie/${movieId}?api_key=${API_KEY}&language=ko-KR`);
-            movies.push({
-                id: response.data.id,
-                title: response.data.title,
-                poster_path: getFullPosterUrl(response.data.poster_path),
-                release_date: response.data.release_date,
-                vote_average: response.data.vote_average
-            });
+        if (!req.user || !req.user.id) {
+            return res.status(401).json({ message: '인증되지 않은 사용자입니다. 이 기능을 사용하려면 로그인이 필요합니다.' });
         }
-
-        res.json({ movies });
+        const userId = req.user.id;
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: '사용자를 찾을 수 없습니다.' });
+        }
+        const bookmarkedMoviesDetails = [];
+        if (user.bookmarkedMovies && user.bookmarkedMovies.length > 0) {
+            for (const bookmarkedMovie of user.bookmarkedMovies) {
+                try {
+                    const response = await axios.get(`${BASE_URL}/movie/${bookmarkedMovie.movieId}?api_key=${API_KEY}&language=ko-KR`);
+                    bookmarkedMoviesDetails.push({
+                        id: response.data.id,
+                        title: response.data.title,
+                        poster_path: getFullPosterUrl(response.data.poster_path),
+                        release_date: response.data.release_date,
+                        vote_average: response.data.vote_average
+                    });
+                } catch (movieError) {
+                    console.error(`Error fetching details for bookmarked movie ${bookmarkedMovie.movieId}:`, movieError.message);
+                }
+            }
+        }
+        res.json({ movies: bookmarkedMoviesDetails });
     } catch (error) {
         console.error("Error fetching bookmarked movies:", error);
         res.status(500).json({ message: 'Failed to fetch bookmarked movies.' });
     }
 });
 
-// 7. 영화 좋아요 토글
+// 7. 영화 좋아요 토글 (사용자 코드 유지, req.user 의존)
 router.post('/like/:movieId', async (req, res) => {
     try {
-        const userId = req.user.id; // 예시로 req.user 사용
+        if (!req.user || !req.user.id) { // req.user 가 없으면 movieService 사용 불가 (userId 필요)
+            return res.status(401).json({ message: '인증이 필요합니다.' });
+        }
+        const userId = req.user.id;
         const movieId = parseInt(req.params.movieId);
         
-        const isLiked = await movieService.isMovieLiked(userId, movieId);
+        // movieService의 로직은 User 모델의 likedMovies가 단순 movieId 배열이라고 가정할 수 있음.
+        // 현재 User 모델은 객체 배열이므로, movieService.isMovieLiked 등이 호환되지 않을 수 있음.
+        // userActionsController.js의 로직을 참고하여 직접 User 모델을 다루는 것이 일관성 있음.
+        // 여기서는 사용자님의 코드를 유지하되, 잠재적 비호환성 주석 추가.
+        const isLiked = await movieService.isMovieLiked(userId, movieId); 
         if (isLiked) {
             await movieService.removeLikedMovie(userId, movieId);
             res.json({ message: '영화 좋아요가 취소되었습니다.' });
         } else {
-            await movieService.addLikedMovie(userId, movieId);
+            await movieService.addLikedMovie(userId, movieId); // title, posterPath 정보 없이 movieId만 전달
             res.json({ message: '영화를 좋아요했습니다.' });
         }
     } catch (error) {
@@ -304,18 +370,23 @@ router.post('/like/:movieId', async (req, res) => {
     }
 });
 
-// 8. 영화 북마크 토글
+// 8. 영화 북마크 토글 (사용자 코드 유지, req.user 의존)
 router.post('/bookmark/:movieId', async (req, res) => {
     try {
-        const userId = req.user.id; // 예시로 req.user 사용
+        if (!req.user || !req.user.id) { // req.user 가 없으면 movieService 사용 불가 (userId 필요)
+            return res.status(401).json({ message: '인증이 필요합니다.' });
+        }
+        const userId = req.user.id;
         const movieId = parseInt(req.params.movieId);
-        
+
+        // movieService의 로직은 User 모델의 bookmarkedMovies가 단순 movieId 배열이라고 가정할 수 있음.
+        // 이 또한 userActionsController.js의 로직과 비교하여 일관성 확인 필요.
         const isBookmarked = await movieService.isMovieBookmarked(userId, movieId);
         if (isBookmarked) {
             await movieService.removeBookmarkedMovie(userId, movieId);
             res.json({ message: '영화 북마크가 취소되었습니다.' });
         } else {
-            await movieService.addBookmarkedMovie(userId, movieId);
+            await movieService.addBookmarkedMovie(userId, movieId); // title, posterPath 정보 없이 movieId만 전달
             res.json({ message: '영화를 북마크했습니다.' });
         }
     } catch (error) {
