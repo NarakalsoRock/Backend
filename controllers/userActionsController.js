@@ -32,7 +32,12 @@ exports.toggleLikeMovie = async (req, res) => {
             message = '영화 좋아요를 취소했습니다.';
         } else {
             // 좋아요 목록에 없으면 추가
-            user.likedMovies.push({ movieId: String(movieId), title, posterPath });
+            user.likedMovies.push({ 
+                movieId: String(movieId), 
+                title,
+                posterPath,
+                addedAt: new Date() // 추가일 저장
+            });
             message = '영화를 좋아합니다.';
         }
         await user.save();
@@ -75,7 +80,12 @@ exports.toggleBookmarkMovie = async (req, res) => {
             message = '영화 북마크를 취소했습니다.';
         } else {
             // 북마크 목록에 없으면 추가
-            user.bookmarkedMovies.push({ movieId: String(movieId), title, posterPath });
+            user.bookmarkedMovies.push({ 
+                movieId: String(movieId), 
+                title, 
+                posterPath,
+                addedAt: new Date() // 추가일 저장
+            });
             message = '영화를 북마크했습니다.';
         }
         await user.save();

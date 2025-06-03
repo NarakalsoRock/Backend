@@ -1,10 +1,9 @@
-// backend/routes/moviesRoutes.js
 const express = require('express');
 const axios = require('axios');
 const router = express.Router();
-// const movieService = require('../services/movieService'); // 이 서비스는 userActionsController와 기능이 중복될 수 있으므로, 사용하지 않는다면 제거합니다.
+const movieService = require('../services/movieService');
 
-const API_KEY = process.env.TMDB_API_KEY;
+const API_KEY = process.env.TMDB_API_KEY; // .env에서 로드된 API 키 사용
 const BASE_URL = 'https://api.themoviedb.org/3';
 const IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/';
 
@@ -17,21 +16,28 @@ const getFullPosterUrl = (posterPath, size = 'w342') => {
 
 // 1. 메인 영화 (현재 상영작 상위 10개 중 랜덤 선택)
 router.get('/main-movie', async (req, res) => {
-    if (!API_KEY) return res.status(500).json({ success: false, message: 'TMDB API 키가 설정되지 않았습니다.' });
     try {
-        const response = await axios.get(`${BASE_URL}/movie/now_playing?api_key=${API_KEY}&language=ko-KR&page=1&region=KR`);
+        const response = await axios.get(`${BASE_URL}/movie/now_playing?api_key=${API_KEY}&language=ko-KR&page=1`);
         const movies = response.data.results;
         if (movies.length > 0) {
+            // 상위 10개 영화 선택 (또는 전체 영화가 10개 미만이면 전체)
             const top10Movies = movies.slice(0, 10);
+            // 랜덤 인덱스 생성
             const randomIndex = Math.floor(Math.random() * top10Movies.length);
             const mainMovie = top10Movies[randomIndex];
 
-            const detailResponse = await axios.get(`${BASE_URL}/movie/${mainMovie.id}?api_key=${API_KEY}&language=ko-KR&append_to_response=credits`);
+            // 추가 영화 정보 가져오기
+            const detailResponse = await axios.get(`${BASE_URL}/movie/${mainMovie.id}?api_key=${API_KEY}&language=ko-KR`);
             const movieDetails = detailResponse.data;
-            const director = movieDetails.credits.crew.find(person => person.job === 'Director');
+
+            // 크레딧 정보 가져오기
+            const creditsResponse = await axios.get(`${BASE_URL}/movie/${mainMovie.id}/credits?api_key=${API_KEY}&language=ko-KR`);
+            const creditsData = creditsResponse.data;
+
+            // 감독 정보 찾기
+            const director = creditsData.crew.find(person => person.job === 'Director');
 
             res.json({
-                success: true,
                 id: mainMovie.id,
                 title: mainMovie.title,
                 overview: mainMovie.overview,
@@ -40,185 +46,282 @@ router.get('/main-movie', async (req, res) => {
                 release_date: mainMovie.release_date,
                 vote_average: mainMovie.vote_average,
                 runtime: movieDetails.runtime,
-                genres: movieDetails.genres ? movieDetails.genres.map(genre => genre.name) : [],
+                genres: movieDetails.genres.map(genre => genre.name),
                 director: director ? { name: director.name } : null
             });
         } else {
-            res.status(404).json({ success: false, message: '메인 영화 정보를 찾을 수 없습니다.' });
+            res.status(404).json({ message: 'No main movie found.' });
         }
     } catch (error) {
-        console.error("Error fetching main movie:", error.message);
-        res.status(500).json({ success: false, message: '메인 영화 정보를 가져오는 중 오류 발생', error: error.message });
+        console.error("Error fetching main movie:", error);
+        res.status(500).json({ message: 'Failed to fetch main movie data.' });
     }
 });
 
+
 // 2. 현재 상영작 목록 (Now Playing)
 router.get('/now-playing', async (req, res) => {
-    const page = req.query.page || 1;
-    if (!API_KEY) return res.status(500).json({ success: false, message: 'TMDB API 키가 설정되지 않았습니다.' });
     try {
-        const response = await axios.get(`${BASE_URL}/movie/now_playing?api_key=${API_KEY}&language=ko-KR&page=${page}&region=KR`);
-        
-        const moviesWithFullPosterPath = response.data.results.map(movie => ({
-            ...movie,
-            poster_path: getFullPosterUrl(movie.poster_path, 'w342')
+        const page = req.query.page || 1;
+        const response = await axios.get(`${BASE_URL}/movie/now_playing?api_key=${API_KEY}&language=ko-KR&page=${page}`);
+        const movies = await Promise.all(response.data.results.map(async movie => {
+            // 영화 상세 정보를 추가로 가져와서 관람등급 정보 포함
+            const detailResponse = await axios.get(`${BASE_URL}/movie/${movie.id}?api_key=${API_KEY}&language=ko-KR`);
+            const rating = detailResponse.data.adult ? '18' : 
+                         movie.vote_average >= 7 ? '15' : 
+                         movie.vote_average >= 5 ? '12' : 'ALL';
+            
+            return {
+                id: movie.id,
+                title: movie.title,
+                release_date: movie.release_date,
+                vote_average: movie.vote_average,
+                poster_path: getFullPosterUrl(movie.poster_path, 'w342'),
+                rating: rating
+            };
         }));
-
+        
         res.json({
-            success: true,
-            movies: moviesWithFullPosterPath,
+            movies: movies,
             total_pages: response.data.total_pages,
             page: response.data.page
         });
     } catch (error) {
-        console.error("Error fetching now playing movies:", error.message);
-        res.status(500).json({ success: false, message: '현재 상영작 정보를 가져오는 중 오류 발생', error: error.message });
+        console.error("Error fetching now playing movies:", error);
+        res.status(500).json({ message: 'Failed to fetch now playing movies.' });
     }
 });
 
 // 3. 상영 예정작 목록 (Upcoming)
 router.get('/upcoming', async (req, res) => {
-    const page = req.query.page || 1;
-    if (!API_KEY) return res.status(500).json({ success: false, message: 'TMDB API 키가 설정되지 않았습니다.' });
     try {
-        const response = await axios.get(`${BASE_URL}/movie/upcoming?api_key=${API_KEY}&language=ko-KR&page=${page}&region=KR`);
+        // 현재 날짜를 YYYY-MM-DD 형식으로 가져오기
+        const today = new Date().toISOString().split('T')[0];
         
-        const moviesWithFullPosterPath = response.data.results.map(movie => ({
-            ...movie,
-            poster_path: getFullPosterUrl(movie.poster_path, 'w342')
+        // 여러 페이지의 데이터를 가져오기
+        const allMovies = [];
+        
+        // 1. upcoming 엔드포인트에서 데이터 가져오기
+        let page = 1;
+        const maxPages = 3;
+        
+        while (page <= maxPages) {
+            const response = await axios.get(
+                `${BASE_URL}/movie/upcoming?api_key=${API_KEY}&language=ko-KR&page=${page}&region=KR&with_release_type=3`
+            );
+            
+            if (!response.data.results.length) break;
+            
+            allMovies.push(...response.data.results);
+            page++;
+        }
+
+        // 2. discover 엔드포인트에서 추가 데이터 가져오기 (더 먼 미래의 영화)
+        page = 1;
+        while (page <= maxPages) {
+            const response = await axios.get(
+                `${BASE_URL}/discover/movie?api_key=${API_KEY}&language=ko-KR&page=${page}&region=KR&sort_by=release_date.asc&release_date.gte=${today}&with_release_type=3&watch_region=KR`
+            );
+            
+            if (!response.data.results.length) break;
+            
+            allMovies.push(...response.data.results);
+            page++;
+        }
+
+        // 중복 제거 및 현재 날짜 이후 영화만 필터링
+        const uniqueMovies = Array.from(new Set(allMovies.map(movie => movie.id)))
+            .map(id => allMovies.find(movie => movie.id === id))
+            .filter(movie => {
+                // 한국어 제목이 있거나 한국에서 개봉하는 영화만 포함
+                return movie.release_date > today && 
+                       (movie.title.match(/[가-힣]/) || // 한글이 포함된 제목
+                        movie.original_language === 'ko'); // 원어가 한국어
+            })
+            .sort((a, b) => new Date(a.release_date) - new Date(b.release_date));
+
+        // 영화 상세 정보 가져오기
+        const movies = await Promise.all(uniqueMovies.map(async movie => {
+            try {
+                const detailResponse = await axios.get(`${BASE_URL}/movie/${movie.id}?api_key=${API_KEY}&language=ko-KR`);
+                
+                // 한국 개봉일 확인
+                const releaseDatesResponse = await axios.get(
+                    `${BASE_URL}/movie/${movie.id}/release_dates?api_key=${API_KEY}`
+                );
+                
+                const koreanRelease = releaseDatesResponse.data.results.find(
+                    country => country.iso_3166_1 === 'KR'
+                );
+
+                // 한국 개봉일이 있는 경우에만 포함
+                if (!koreanRelease) return null;
+
+                const rating = detailResponse.data.adult ? '18' : 
+                             movie.vote_average >= 7 ? '15' : 
+                             movie.vote_average >= 5 ? '12' : 'ALL';
+                
+                return {
+                    id: movie.id,
+                    title: movie.title,
+                    release_date: movie.release_date,
+                    vote_average: movie.vote_average,
+                    poster_path: getFullPosterUrl(movie.poster_path, 'w342'),
+                    rating: rating
+                };
+            } catch (error) {
+                console.error(`Error fetching details for movie ${movie.id}:`, error);
+                return null;
+            }
         }));
 
+        // null 값 제거
+        const validMovies = movies.filter(movie => movie !== null);
+        
         res.json({
-            success: true,
-            movies: moviesWithFullPosterPath,
-            total_pages: response.data.total_pages,
-            page: response.data.page
+            movies: validMovies,
+            total_pages: maxPages,
+            page: 1
         });
     } catch (error) {
-        console.error("Error fetching upcoming movies:", error.message);
-        res.status(500).json({ success: false, message: '개봉 예정작 정보를 가져오는 중 오류 발생', error: error.message });
+        console.error("Error fetching upcoming movies:", error);
+        res.status(500).json({ message: 'Failed to fetch upcoming movies.' });
     }
 });
 
 // 4. 영화 상세 정보
-router.get('/:movieId', async (req, res) => { // API 경로 일관성을 위해 /movie/:id 대신 /:movieId 사용
-    const movieId = req.params.movieId;
-    if (!API_KEY) return res.status(500).json({ success: false, message: 'TMDB API 키가 설정되지 않았습니다.' });
+router.get('/movie/:id', async (req, res) => {
     try {
-        const response = await axios.get(`${BASE_URL}/movie/${movieId}?api_key=${API_KEY}&language=ko-KR&append_to_response=credits,videos,release_dates`);
+        const movieId = req.params.id;
+        const response = await axios.get(`${BASE_URL}/movie/${movieId}?api_key=${API_KEY}&language=ko-KR`);
         const movieData = response.data;
 
-        const cast = movieData.credits.cast.slice(0, 10).map(person => ({
+        // 추가적으로 크레딧 정보도 가져오기 (배우, 감독)
+        const creditsResponse = await axios.get(`${BASE_URL}/movie/${movieId}/credits?api_key=${API_KEY}&language=ko-KR`);
+        const creditsData = creditsResponse.data;
+
+        const cast = creditsData.cast.slice(0, 5).map(person => ({ // 주요 출연진 5명
             id: person.id,
             name: person.name,
             character: person.character,
-            profile_path: getFullPosterUrl(person.profile_path, 'w185')
+            profile_path: getFullPosterUrl(person.profile_path, 'w185') // 배우 프로필 이미지
         }));
-        const director = movieData.credits.crew.find(person => person.job === 'Director');
+        const director = creditsData.crew.find(person => person.job === 'Director');
 
-        let certification = '정보 없음';
-        if (movieData.release_dates && movieData.release_dates.results) {
-            const krRelease = movieData.release_dates.results.find(r => r.iso_3166_1 === 'KR');
-            if (krRelease && krRelease.release_dates.length > 0) {
-                const officialRelease = krRelease.release_dates.find(rd => rd.certification && rd.certification !== "");
-                certification = officialRelease ? officialRelease.certification : (krRelease.release_dates[0] ? krRelease.release_dates[0].certification : '정보 없음');
-            }
-        }
-        
         res.json({
-            success: true,
-            movie: { // 프론트엔드 api.js의 getMovieDetails와 일관성을 위해 movie 키로 감쌈
-                id: movieData.id,
-                title: movieData.title,
-                original_title: movieData.original_title,
-                overview: movieData.overview,
-                release_date: movieData.release_date,
-                vote_average: movieData.vote_average,
-                runtime: movieData.runtime,
-                genres: movieData.genres ? movieData.genres.map(genre => genre.name) : [],
-                poster_path: getFullPosterUrl(movieData.poster_path, 'w500'),
-                backdrop_path: getFullPosterUrl(movieData.backdrop_path, 'w1280'),
-                cast: cast,
-                director: director ? { id: director.id, name: director.name } : null,
-                videos: movieData.videos,
-                certification: certification
-            }
+            id: movieData.id,
+            title: movieData.title,
+            original_title: movieData.original_title,
+            overview: movieData.overview,
+            release_date: movieData.release_date,
+            vote_average: movieData.vote_average,
+            runtime: movieData.runtime,
+            genres: movieData.genres ? movieData.genres.map(genre => genre.name) : [],
+            poster_path: getFullPosterUrl(movieData.poster_path, 'w500'),
+            backdrop_path: getFullPosterUrl(movieData.backdrop_path, 'w1280'),
+            cast: cast,
+            director: director ? { id: director.id, name: director.name } : null
         });
     } catch (error) {
-        console.error(`Error fetching movie details for ID ${req.params.movieId}:`, error.message);
+        console.error(`Error fetching movie details for ID ${req.params.id}:`, error);
         if (error.response && error.response.status === 404) {
-            res.status(404).json({ success: false, message: '영화를 찾을 수 없습니다.' });
+            res.status(404).json({ message: 'Movie not found.' });
         } else {
-            res.status(500).json({ success: false, message: '영화 상세 정보를 가져오는 중 오류 발생', error: error.message });
+            res.status(500).json({ message: 'Failed to fetch movie details.' });
         }
     }
 });
 
-// 5. 영화 검색 라우트
-router.get('/search', async (req, res) => {
-    const query = req.query.query;
-    const page = parseInt(req.query.page) || 1;
-
-    if (!query) {
-        return res.status(400).json({ success: false, message: '검색어를 입력해주세요.' });
-    }
-    if (!API_KEY) {
-        console.error('TMDB_API_KEY is not defined in .env file');
-        return res.status(500).json({ success: false, message: 'TMDB API 키가 설정되지 않았습니다.' });
-    }
-
+// 5. 마이페이지 - 좋아요한 영화 목록
+router.get('/liked', async (req, res) => {
     try {
-        const response = await axios.get(`${BASE_URL}/search/movie`, {
-            params: {
-                api_key: API_KEY,
-                query: query,
-                language: 'ko-KR',
-                page: page,
-                include_adult: false
-            }
-        });
-        res.json({
-            success: true,
-            movies: response.data.results.map(movie => ({
-                ...movie,
-                poster_path: getFullPosterUrl(movie.poster_path, 'w342')
-            })),
-            page: response.data.page,
-            total_pages: response.data.total_pages,
-            total_results: response.data.total_results
-        });
-    } catch (error) {
-        console.error('Error fetching search results from TMDB:', error.message);
-        if (error.response) {
-            console.error('TMDB Error Data:', error.response.data);
-            res.status(error.response.status).json({ 
-                success: false, 
-                message: error.response.data.status_message || 'TMDB API 호출 중 오류가 발생했습니다.',
-                error_details: error.response.data 
-            });
-        } else {
-            res.status(500).json({ 
-                success: false, 
-                message: '영화 검색 중 서버 내부 오류가 발생했습니다.',
-                error_details: error.message 
+        // 실제 구현에서는 인증 미들웨어에서 userId를 가져와야 합니다
+        const userId = req.user.id; // 예시로 req.user 사용
+        const movieIds = await movieService.getLikedMovies(userId);
+        const movies = [];
+
+        for (const movieId of movieIds) {
+            const response = await axios.get(`${BASE_URL}/movie/${movieId}?api_key=${API_KEY}&language=ko-KR`);
+            movies.push({
+                id: response.data.id,
+                title: response.data.title,
+                poster_path: getFullPosterUrl(response.data.poster_path),
+                release_date: response.data.release_date,
+                vote_average: response.data.vote_average
             });
         }
+
+        res.json({ movies });
+    } catch (error) {
+        console.error("Error fetching liked movies:", error);
+        res.status(500).json({ message: 'Failed to fetch liked movies.' });
     }
 });
 
-/*
-// 아래 라우트들은 userActionsRoutes.js에서 처리하므로 여기서는 주석 처리하거나 삭제합니다.
-// 5. 마이페이지 - 좋아요한 영화 목록 (userActionsController가 User 모델을 직접 사용)
-router.get('/liked', async (req, res) => { ... });
+// 6. 마이페이지 - 북마크한 영화 목록
+router.get('/bookmarked', async (req, res) => {
+    try {
+        // 실제 구현에서는 인증 미들웨어에서 userId를 가져와야 합니다
+        const userId = req.user.id; // 예시로 req.user 사용
+        const movieIds = await movieService.getBookmarkedMovies(userId);
+        const movies = [];
 
-// 6. 마이페이지 - 북마크한 영화 목록 (userActionsController가 User 모델을 직접 사용)
-router.get('/bookmarked', async (req, res) => { ... });
+        for (const movieId of movieIds) {
+            const response = await axios.get(`${BASE_URL}/movie/${movieId}?api_key=${API_KEY}&language=ko-KR`);
+            movies.push({
+                id: response.data.id,
+                title: response.data.title,
+                poster_path: getFullPosterUrl(response.data.poster_path),
+                release_date: response.data.release_date,
+                vote_average: response.data.vote_average
+            });
+        }
 
-// 7. 영화 좋아요 토글 (userActionsController가 User 모델을 직접 사용)
-router.post('/like/:movieId', async (req, res) => { ... });
+        res.json({ movies });
+    } catch (error) {
+        console.error("Error fetching bookmarked movies:", error);
+        res.status(500).json({ message: 'Failed to fetch bookmarked movies.' });
+    }
+});
 
-// 8. 영화 북마크 토글 (userActionsController가 User 모델을 직접 사용)
-router.post('/bookmark/:movieId', async (req, res) => { ... });
-*/
+// 7. 영화 좋아요 토글
+router.post('/like/:movieId', async (req, res) => {
+    try {
+        const userId = req.user.id; // 예시로 req.user 사용
+        const movieId = parseInt(req.params.movieId);
+        
+        const isLiked = await movieService.isMovieLiked(userId, movieId);
+        if (isLiked) {
+            await movieService.removeLikedMovie(userId, movieId);
+            res.json({ message: '영화 좋아요가 취소되었습니다.' });
+        } else {
+            await movieService.addLikedMovie(userId, movieId);
+            res.json({ message: '영화를 좋아요했습니다.' });
+        }
+    } catch (error) {
+        console.error("Error toggling movie like:", error);
+        res.status(500).json({ message: 'Failed to toggle movie like.' });
+    }
+});
+
+// 8. 영화 북마크 토글
+router.post('/bookmark/:movieId', async (req, res) => {
+    try {
+        const userId = req.user.id; // 예시로 req.user 사용
+        const movieId = parseInt(req.params.movieId);
+        
+        const isBookmarked = await movieService.isMovieBookmarked(userId, movieId);
+        if (isBookmarked) {
+            await movieService.removeBookmarkedMovie(userId, movieId);
+            res.json({ message: '영화 북마크가 취소되었습니다.' });
+        } else {
+            await movieService.addBookmarkedMovie(userId, movieId);
+            res.json({ message: '영화를 북마크했습니다.' });
+        }
+    } catch (error) {
+        console.error("Error toggling movie bookmark:", error);
+        res.status(500).json({ message: 'Failed to toggle movie bookmark.' });
+    }
+});
 
 module.exports = router;
