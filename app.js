@@ -1,3 +1,4 @@
+// app.js
 const express = require('express');
 const dotenv = require('dotenv'); // dotenv 모듈 추가
 const connectDB = require('./config/db'); // DB 연결 함수 불러오기
@@ -23,17 +24,19 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// 라우트 파일 불러오기`
-const authRoutes = require('./routes/authRoutes');
+// 라우트 파일 불러오기
+const authRoutes = require('./routes/authRoutes'); //
 // const userRoutes = require('./routes/users'); // 필요에 따라 주석 해제
-const movieRoutes = require('./routes/moviesRoutes');
-const userActionsRoutes = require('./routes/userActionsRoutes');
+const movieRoutes = require('./routes/moviesRoutes'); //
+const userActionsRoutes = require('./routes/userActionsRoutes'); //
+const postRoutes = require('./routes/postRoutes'); // <<<--- 게시판 라우트 추가
 
 // 라우트 마운트
 app.use('/api/auth', authRoutes);
 // app.use('/api/users', userRoutes);
 app.use('/api/movies', movieRoutes);
 app.use('/api/actions', userActionsRoutes);
+app.use('/api/posts', postRoutes); // <<<--- 게시판 라우트 마운트
 
 // 에러 핸들링
 app.use((err, req, res, next) => {
