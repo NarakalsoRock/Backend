@@ -105,3 +105,26 @@ exports.getMe = async (req, res, next) => {
         res.status(500).json({ success: false, error: '서버 오류가 발생했습니다.' });
     }
 };
+
+// @desc    로그아웃
+// @route   POST /api/auth/logout
+// @access  Private (JWT 필요)
+exports.logout = async (req, res, next) => {
+    // JWT의 경우 로그아웃은 주로 클라이언트 측 작업입니다(토큰 삭제).
+    // 이 엔드포인트는 로그아웃을 확인하기 위한 것입니다.
+    // 세션 기반 인증을 사용하는 경우 여기에서 세션을 삭제합니다.
+    // 토큰 블랙리스트가 있다면 여기에 토큰을 추가할 수 있습니다.
+    try {
+        // 선택적으로 로그아웃 작업을 기록하거나 다른 정리 작업을 수행할 수 있습니다.
+        // 지금은 성공 응답만 보냅니다.
+        res.status(200).json({
+            success: true,
+            message: '성공적으로 로그아웃되었습니다.'
+        });
+    } catch (err) {
+        // 이 기본 로그아웃은 미들웨어 문제나 이 컨트롤러에 도달하기 전 예상치 못한 문제가 없는 한
+        // 실제로 오류를 발생시키지 않아야 합니다.
+        console.error('Logout error:', err); // 디버깅을 위한 로그
+        res.status(500).json({ success: false, error: '로그아웃 중 서버 오류가 발생했습니다.' });
+    }
+};
