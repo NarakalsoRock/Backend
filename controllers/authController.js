@@ -34,6 +34,7 @@ exports.signup = async (req, res, next) => {
             token
         });
     } catch (err) {
+        // console.error('Signup Error Details:', err);
         // Mongoose 유효성 검사 오류 처리
         if (err.name === 'ValidationError') {
             const messages = Object.values(err.errors).map(val => val.message);
