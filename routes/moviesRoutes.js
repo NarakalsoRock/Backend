@@ -73,10 +73,10 @@ router.get('/now-playing', async (req, res) => {
                          movie.vote_average >= 5 ? '12' : 'ALL';
             
             return {
-                id: movie.id,
-                title: movie.title,
-                release_date: movie.release_date,
-                vote_average: movie.vote_average,
+            id: movie.id,
+            title: movie.title,
+            release_date: movie.release_date,
+            vote_average: movie.vote_average,
                 poster_path: getFullPosterUrl(movie.poster_path, 'w342'),
                 rating: rating
             };
@@ -163,10 +163,10 @@ router.get('/upcoming', async (req, res) => {
                              movie.vote_average >= 5 ? '12' : 'ALL';
                 
                 return {
-                    id: movie.id,
-                    title: movie.title,
-                    release_date: movie.release_date,
-                    vote_average: movie.vote_average,
+            id: movie.id,
+            title: movie.title,
+            release_date: movie.release_date,
+            vote_average: movie.vote_average,
                     poster_path: getFullPosterUrl(movie.poster_path, 'w342'),
                     rating: rating
                 };
